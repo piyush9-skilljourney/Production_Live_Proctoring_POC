@@ -102,6 +102,8 @@ The system should:
 | 7 | backend/app/main.py | L02 | API | ✅ Created | FastAPI entry point + /sync route |
 | 8 | frontend/src/components/TestDashboard.tsx | L00 | UI | ✅ Created | Foundation verification dashboard |
 | 9 | frontend/vite.config.ts | L00 | CFG | ✅ Created | Vite configuration |
+| 10| backend/app/services/events.py | L04 | Service | ✅ Created | Event factory & Z-score gating logic |
+| 11| .vscode/settings.json | L00 | CFG | ✅ Created | Workspace VS Code settings for Python interpreter |
 
 ---
 
@@ -254,6 +256,20 @@ The system should:
 | Step-8 | CREATE | - | L00 | Added verification UI infrastructure |
 | Step-9 | MODIFY | useInference.ts | L01 | Implemented CDN Singleton pattern |
 | Step-10| CREATE | tsconfig.json | L00 | Added Vite client types |
+| Step-11| MODIFY | useInference.ts | L01 | Fixed TS server cache issue by explicit index import |
+| Step-12| MODIFY | CalibrationOverlay.tsx | L00 | Fixed TS server cache issue by explicit index import |
+| Step-13| RENAME | frontend/src/types.ts | L01 | Flattened types dir to types.ts to bust IDE cache |
+| Step-14| MODIFY | useInference, CalibrationOverlay | L01 | Reverted imports to ../types |
+| Step-15| CREATE | backend/app/services/events.py | L04 | Added event factory for Z-score gating |
+| Step-16| MODIFY | backend/app/main.py | L02,L04 | Integrated event factory and Event schema |
+| Step-17| CREATE | .vscode/settings.json | L00 | Configured VS Code to use backend venv python interpreter |
+| Step-18| MODIFY | .vscode/settings.json | L00 | Updated paths to absolute paths to support multi-workspace setups |
+| Step-19| MODIFY | PIE_CONTEXT.md | ALL | Started implementation of Essential Fixes and Sprint 5 completion |
+| Step-20| MODIFY | frontend/src/types.ts | L01 | Added sampleCount to CalibrationMap and PIEEvent |
+| Step-21| MODIFY | backend/app/main.py | L00 | Implemented /api/calibrate with validation & webhook support |
+| Step-22| MODIFY | frontend/src/hooks/useInference.ts | L01 | Gated object detection via enableObjectDetection |
+| Step-23| CREATE | frontend/src/components/LiveEventLog.tsx | L00 | Added frontend live event feed |
+| Step-24| MODIFY | frontend/src/App.tsx | L00 | Integrated Calibration validation & LiveEventLog |
 
 ---
 

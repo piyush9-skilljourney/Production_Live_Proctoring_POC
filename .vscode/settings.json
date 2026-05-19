@@ -1,0 +1,7 @@
+{
+  "python.defaultInterpreterPath": "d:/Projects/FastAPI/Production Proctoring POC/backend/venv/Scripts/python.exe",
+  "python.analysis.extraPaths": [
+    "d:/Projects/FastAPI/Production Proctoring POC/backend/venv/Lib/site-packages",
+    "d:/Projects/FastAPI/Production Proctoring POC/backend"
+  ]
+}

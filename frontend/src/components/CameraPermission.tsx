@@ -1,5 +1,5 @@
 import React from 'react';
-import { PermissionState } from '../types';
+import type { PermissionState } from '../types';
 
 interface Props {
   permission: PermissionState;
@@ -7,23 +7,18 @@ interface Props {
   onRequest: () => void;
 }
 
-const CameraPermission: React.FC<Props> = ({ permission, micPermission, onRequest }) => {
-  // Browser support guard screen
+const CameraPermission: React.FC<Props> = ({
+  permission,
+  micPermission,
+  onRequest,
+}) => {
   if (typeof window !== 'undefined' && !isSupported()) {
     return (
-      <div style={styles.container}>
-        <div style={styles.card}>
-          <div style={styles.iconBox('#fef3c7')}>
-            <span style={{ fontSize: 32 }}>⚠️</span>
-          </div>
-          <h2 style={styles.title}>Unsupported Browser</h2>
-          <p style={styles.body}>
-            PIE v2 requires <strong>Google Chrome</strong> or{' '}
-            <strong>Microsoft Edge</strong> for AI-powered proctoring.
-            Please reopen this page in a supported browser.
-          </p>
-        </div>
-      </div>
+      <Screen
+        tone="warning"
+        title="Unsupported Browser"
+        body="PIE v2 requires Google Chrome or Microsoft Edge for AI-powered proctoring. Please reopen this page in a supported browser."
+      />
     );
   }
 
@@ -31,10 +26,8 @@ const CameraPermission: React.FC<Props> = ({ permission, micPermission, onReques
     return (
       <div style={styles.container}>
         <div style={styles.card}>
-          <div style={styles.iconBox('#fee2e2')}>
-            <span style={{ fontSize: 32 }}>🚫</span>
-          </div>
-          <h2 style={styles.title}>Camera Access Denied</h2>
+          <div style={styles.iconBox('#fee2e2')}>!</div>
+          <h2 style={styles.title}>Camera or Microphone Blocked</h2>
           <p style={styles.body}>
             PIE v2 requires camera and microphone access to conduct a proctored
             assessment. Please allow access in your browser settings and reload
@@ -42,8 +35,8 @@ const CameraPermission: React.FC<Props> = ({ permission, micPermission, onReques
           </p>
           <div style={styles.stepBox}>
             <p style={styles.stepText}>
-              Chrome: Click the 🔒 icon in the address bar → Allow camera and
-              microphone → Reload
+              Chrome or Edge: click the lock icon in the address bar, allow
+              camera and microphone, then reload.
             </p>
           </div>
           <button style={styles.button} onClick={() => window.location.reload()}>
@@ -56,29 +49,19 @@ const CameraPermission: React.FC<Props> = ({ permission, micPermission, onReques
 
   if (permission === 'requesting') {
     return (
-      <div style={styles.container}>
-        <div style={styles.card}>
-          <div style={styles.iconBox('#ede9fe')}>
-            <span style={{ fontSize: 32 }}>🎥</span>
-          </div>
-          <h2 style={styles.title}>Requesting Access...</h2>
-          <p style={styles.body}>
-            Please allow camera and microphone access when prompted by your
-            browser.
-          </p>
-        </div>
-      </div>
+      <Screen
+        tone="neutral"
+        title="Requesting Access"
+        body="Please allow camera and microphone access when prompted by your browser."
+      />
     );
   }
 
-  // idle — show the initial permission request screen
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-        <div style={styles.iconBox('#ede9fe')}>
-          <span style={{ fontSize: 32 }}>🛡️</span>
-        </div>
-        <h2 style={styles.title}>PIE v2 — Proctoring Intelligence Engine</h2>
+        <div style={styles.iconBox('#ede9fe')}>PIE</div>
+        <h2 style={styles.title}>PIE v2 - Proctoring Intelligence Engine</h2>
         <p style={styles.body}>
           This assessment is AI-proctored. We need access to your camera and
           microphone to monitor your environment during the test.
@@ -90,19 +73,38 @@ const CameraPermission: React.FC<Props> = ({ permission, micPermission, onReques
         </div>
 
         <button style={styles.button} onClick={onRequest}>
-          Grant Access &amp; Continue
+          Grant Access and Continue
         </button>
 
         <p style={styles.footer}>
-          No video is recorded or stored. Only behavioral signals are
-          transmitted.
+          No video is recorded or stored. Only behavioral signals are used in
+          this proof of concept.
         </p>
       </div>
     </div>
   );
 };
 
-// Small inline badge
+const Screen = ({
+  tone,
+  title,
+  body,
+}: {
+  tone: 'neutral' | 'warning';
+  title: string;
+  body: string;
+}) => (
+  <div style={styles.container}>
+    <div style={styles.card}>
+      <div style={styles.iconBox(tone === 'warning' ? '#fef3c7' : '#ede9fe')}>
+        {tone === 'warning' ? '!' : 'PIE'}
+      </div>
+      <h2 style={styles.title}>{title}</h2>
+      <p style={styles.body}>{body}</p>
+    </div>
+  </div>
+);
+
 const PermissionBadge = ({
   label,
   state,
@@ -122,8 +124,7 @@ const PermissionBadge = ({
       : state === 'denied'
         ? '#991b1b'
         : '#6b7280';
-  const icon =
-    state === 'granted' ? '✓' : state === 'denied' ? '✗' : '○';
+  const icon = state === 'granted' ? 'OK' : state === 'denied' ? 'NO' : 'WAIT';
 
   return (
     <div
@@ -139,13 +140,12 @@ const PermissionBadge = ({
         color: textColor,
       }}
     >
-      <span>{icon}</span>
+      <span style={{ fontFamily: 'monospace', fontSize: 10 }}>{icon}</span>
       {label}
     </div>
   );
 };
 
-// Check support outside component to avoid re-render loop
 function isSupported() {
   const ua = navigator.userAgent;
   return (
@@ -166,7 +166,7 @@ const styles = {
 
   card: {
     background: '#ffffff',
-    borderRadius: 24,
+    borderRadius: 16,
     padding: '48px 40px',
     maxWidth: 480,
     width: '100%',
@@ -179,11 +179,14 @@ const styles = {
     width: 72,
     height: 72,
     background: bg,
-    borderRadius: 20,
+    borderRadius: 16,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     margin: '0 auto 24px',
+    color: '#4f46e5',
+    fontSize: 16,
+    fontWeight: 800,
   }),
 
   title: {
@@ -227,13 +230,13 @@ const styles = {
     background: '#4f46e5',
     color: '#ffffff',
     border: 'none',
-    borderRadius: 12,
+    borderRadius: 10,
     padding: '14px 24px',
     fontSize: 14,
     fontWeight: 700,
     cursor: 'pointer',
     marginBottom: 16,
-    letterSpacing: '0.05em',
+    letterSpacing: '0.02em',
   } as React.CSSProperties,
 
   footer: {
