@@ -12,6 +12,7 @@ import CameraPermission from './components/CameraPermission';
 import SignalQualityBadge from './components/SignalQualityBadge';
 import LiveEventLog from './components/LiveEventLog';
 import type { CalibrationMap, FaceLandmark, GazeZone } from './types';
+import RecruiterDashboard from './components/RecruiterDashboard';
 
 const SESSION_ID_STORAGE_KEY = 'pie_session_id';
 const PROCTORING_TOKEN_STORAGE_KEY = 'pie_proctoring_token';
@@ -44,6 +45,8 @@ const SESSION_ID =
 const PROCTORING_TOKEN = searchParams.get('token') ?? storedToken;
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000';
 const IS_DEV_MODE = searchParams.get('dev') === '1';
+const IS_SENSOR_MODE = searchParams.get('mode') === 'sensor';
+const SENSOR_PREVIEW = searchParams.get('preview') !== '0';
 
 window.localStorage.setItem(SESSION_ID_STORAGE_KEY, SESSION_ID);
 if (PROCTORING_TOKEN) {
@@ -92,7 +95,7 @@ function App() {
 
   const { permission, micPermission, mediaStream, videoRef, requestAccess } =
     useCamera();
-  const { gazeData, fps, landmarks, objects, latestPoseRef } = useInference(
+  const { gazeData, fps, landmarks, objects, objectScores, latestPoseRef } = useInference(
     videoRef,
     isActive,
     calibrationMap,
@@ -116,10 +119,74 @@ function App() {
     syncStatus,
     lastError,
     confidence,
+    attentiveness,
+    environment,
+    integrity,
     retryCount,
     events,
-  } =
-    useSyncLoop(isProctoringActive, SESSION_ID, frameBufferRef);
+  } = useSyncLoop(isProctoringActive && !IS_SENSOR_MODE, SESSION_ID, frameBufferRef);
+
+  const [viewMode, setViewMode] = useState<'candidate' | 'recruiter'>('candidate');
+  const [timelineData, setTimelineData] = useState<{
+    time: string;
+    integrity: number;
+    attentiveness: number;
+    environment: number;
+  }[]>([]);
+
+  useEffect(() => {
+    if (IS_SENSOR_MODE && isActive && !calibrationMap) {
+      setIsInstructionAccepted(true);
+      setIsFullscreenReady(true);
+      setIsFaceCentered(true);
+      setCalibrationMap(DEV_CALIBRATION_MAP);
+    }
+  }, [IS_SENSOR_MODE, isActive, calibrationMap]);
+
+  useEffect(() => {
+    if (!IS_SENSOR_MODE || !isProctoringActive) return;
+
+    let rafId = 0;
+    let lastPost = 0;
+    const tick = (now: number) => {
+      if (now - lastPost > 100) {
+        lastPost = now;
+        window.parent.postMessage({
+          type: 'PIE_RAW_FRAME',
+          payload: {
+            timestamp: Date.now(),
+            gaze_zone: gazeData.zone,
+            head_pose: gazeData.pose,
+            face_visible: landmarks.length > 0,
+            fps,
+            audio_level: audioData.level,
+            vad_speech: audioData.isSpeaking,
+            objects: objects,
+            object_scores: objectScores
+          }
+        }, '*');
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [IS_SENSOR_MODE, isProctoringActive, gazeData, landmarks, fps, audioData, objects, objectScores]);
+
+  useEffect(() => {
+    if (!isProctoringActive) return;
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setTimelineData((prev) => {
+      if (prev.length > 0 && prev[prev.length - 1].time === timeStr) {
+        return prev;
+      }
+      return [...prev, {
+        time: timeStr,
+        integrity,
+        attentiveness,
+        environment,
+      }].slice(-30);
+    });
+  }, [integrity, attentiveness, environment, isProctoringActive]);
 
   const handleGranted = async () => {
     await requestAccess();
@@ -191,6 +258,20 @@ function App() {
     );
   }
 
+  if (IS_SENSOR_MODE) {
+    return (
+      <div style={{ background: '#000', width: '100vw', height: '100vh', overflow: 'hidden' }}>
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: SENSOR_PREVIEW ? 'block' : 'none' }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div style={styles.page}>
       {shouldShowInstructions && (
@@ -217,181 +298,214 @@ function App() {
           <div style={styles.navIcon}>PIE</div>
           <div>
             <div style={styles.navTitle}>PIE v2</div>
-            <div style={styles.navSub}>Sprint 1 - Capture Layer</div>
+            <div style={styles.navSub}>Sprint 6 - Threshold Guard & Scoring Indices</div>
           </div>
         </div>
-        <div style={styles.fpsChip}>
-          {fps} FPS {fps >= 15 ? 'ok' : 'low'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            onClick={() => setViewMode(viewMode === 'candidate' ? 'recruiter' : 'candidate')}
+            style={{
+              padding: '6px 14px',
+              borderRadius: 8,
+              border: '1px solid #cbd5e1',
+              background: viewMode === 'recruiter' ? '#4f46e5' : '#ffffff',
+              color: viewMode === 'recruiter' ? '#ffffff' : '#334155',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              transition: 'all 0.2s',
+            }}
+          >
+            {viewMode === 'candidate' ? '👀 Recruiter Dashboard' : '🎥 Candidate Stream'}
+          </button>
+          <div style={styles.fpsChip}>
+            {fps} FPS {fps >= 15 ? 'ok' : 'low'}
+          </div>
         </div>
       </nav>
 
-      <main style={styles.main}>
-        <div style={styles.videoCard}>
-          <video
-            ref={videoRef}
-            autoPlay
-            muted
-            playsInline
-            style={styles.video}
-          />
-          <LandmarkOverlay landmarks={landmarks} />
+      {viewMode === 'recruiter' ? (
+        <RecruiterDashboard
+          sessionId={SESSION_ID}
+          attentiveness={attentiveness}
+          environment={environment}
+          integrity={integrity}
+          events={events}
+          timelineData={timelineData}
+          confidence={confidence}
+        />
+      ) : (
+        <main style={styles.main}>
+          <div style={styles.videoCard}>
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              style={styles.video}
+            />
+            <LandmarkOverlay landmarks={landmarks} />
 
-          <div
-            style={{
-              ...styles.gazeBadge,
-              background: ZONE_COLORS[gazeData.zone],
-              color: ZONE_TEXT[gazeData.zone],
-            }}
-          >
-            {gazeData.zone}
-          </div>
-
-          <div style={styles.fpsBadge}>{fps} fps</div>
-        </div>
-
-        <div style={styles.panel}>
-          <div style={styles.panelTitle}>Live Signals</div>
-
-          <div style={styles.row}>
-            <span style={styles.rowLabel}>Calibrated Yaw</span>
-            <span style={styles.rowValue}>
-              {gazeData.pose.yaw.toFixed(1)} deg
-            </span>
-          </div>
-          <div style={styles.row}>
-            <span style={styles.rowLabel}>Calibrated Pitch</span>
-            <span style={styles.rowValue}>
-              {gazeData.pose.pitch.toFixed(1)} deg
-            </span>
-          </div>
-          <div style={styles.row}>
-            <span style={styles.rowLabel}>Zone</span>
-            <span
+            <div
               style={{
-                ...styles.rowValue,
+                ...styles.gazeBadge,
+                background: ZONE_COLORS[gazeData.zone],
                 color: ZONE_TEXT[gazeData.zone],
               }}
             >
               {gazeData.zone}
-            </span>
+            </div>
+
+            <div style={styles.fpsBadge}>{fps} fps</div>
           </div>
 
-          <div style={styles.divider} />
+          <div style={styles.panel}>
+            <div style={styles.panelTitle}>Live Signals</div>
 
-          <AudioBar level={audioData.level} isSpeaking={audioData.isSpeaking} />
+            <div style={styles.row}>
+              <span style={styles.rowLabel}>Calibrated Yaw</span>
+              <span style={styles.rowValue}>
+                {gazeData.pose.yaw.toFixed(1)} deg
+              </span>
+            </div>
+            <div style={styles.row}>
+              <span style={styles.rowLabel}>Calibrated Pitch</span>
+              <span style={styles.rowValue}>
+                {gazeData.pose.pitch.toFixed(1)} deg
+              </span>
+            </div>
+            <div style={styles.row}>
+              <span style={styles.rowLabel}>Zone</span>
+              <span
+                style={{
+                  ...styles.rowValue,
+                  color: ZONE_TEXT[gazeData.zone],
+                }}
+              >
+                {gazeData.zone}
+              </span>
+            </div>
 
-          <div style={styles.divider} />
+            <div style={styles.divider} />
 
-          <SignalQualityBadge confidence={confidence} />
+            <AudioBar level={audioData.level} isSpeaking={audioData.isSpeaking} />
 
-          <div style={styles.divider} />
+            <div style={styles.divider} />
 
-          <div style={styles.statusRow}>
-            <StatusDot label="Camera" ok={permission === 'granted'} />
-            <StatusDot label="Microphone" ok={micPermission === 'granted'} />
-            <StatusDot label="FaceMesh" ok={fps > 0} />
-            <StatusDot label="Landmarks" ok={landmarks.length >= 468} />
-          </div>
+            <SignalQualityBadge confidence={confidence} />
 
-          <div style={styles.divider} />
+            <div style={styles.divider} />
 
-          <div style={styles.row}>
-            <span style={styles.rowLabel}>Calibration</span>
-            <span style={styles.rowValue}>
-              {calibrationMap === null ? 'RUNNING' : 'DONE'}
-            </span>
-          </div>
-          <div style={styles.row}>
-            <span style={styles.rowLabel}>Point Samples</span>
-            <span style={styles.rowValue}>
-              {calibrationMap === null
-                ? '--'
-                : `${calibrationMap.pointSamples.length} medians`}
-            </span>
-          </div>
-          <div style={styles.row}>
-            <span style={styles.rowLabel}>Tracking</span>
-            <span style={styles.rowValue}>
-              {calibrationMap === null
-                ? '--'
-                : `${calibrationMap.trackingSamples.length} samples`}
-            </span>
-          </div>
-          <div style={styles.row}>
-            <span style={styles.rowLabel}>Center</span>
-            <span style={styles.rowValue}>
-              {calibrationMap === null
-                ? '--'
-                : `${calibrationMap.centerYaw}/${calibrationMap.centerPitch}`}
-            </span>
-          </div>
-          <div style={styles.row}>
-            <span style={styles.rowLabel}>Range</span>
-            <span style={styles.rowValue}>
-              {calibrationMap === null
-                ? '--'
-                : `${calibrationMap.yawRange}/${calibrationMap.pitchRange}`}
-            </span>
-          </div>
+            <div style={styles.statusRow}>
+              <StatusDot label="Camera" ok={permission === 'granted'} />
+              <StatusDot label="Microphone" ok={micPermission === 'granted'} />
+              <StatusDot label="FaceMesh" ok={fps > 0} />
+              <StatusDot label="Landmarks" ok={landmarks.length >= 468} />
+            </div>
 
-          <div style={styles.divider} />
+            <div style={styles.divider} />
 
-          <div style={styles.row}>
-            <span style={styles.rowLabel}>Frame Buffer</span>
-            <span style={styles.rowValue}>
-              {bufferSize}/{maxBufferSize}
-            </span>
-          </div>
-          <div style={styles.row}>
-            <span style={styles.rowLabel}>Collected</span>
-            <span style={styles.rowValue}>{collectedCount}</span>
-          </div>
-          <div style={styles.row}>
-            <span style={styles.rowLabel}>Last Sync</span>
-            <span style={styles.rowValue}>{lastSyncCount}</span>
-          </div>
-          <div style={styles.row}>
-            <span style={styles.rowLabel}>Total Synced</span>
-            <span style={styles.rowValue}>{totalSynced}</span>
-          </div>
-          <div style={styles.row}>
-            <span style={styles.rowLabel}>Confidence</span>
-            <span style={styles.rowValue}>
-              {confidence === null ? '--' : `${confidence.toFixed(1)}%`}
-            </span>
-          </div>
-          <div style={styles.row}>
-            <span style={styles.rowLabel}>Sync Status</span>
-            <span
-              style={{
-                ...styles.rowValue,
-                color: syncStatus === 'error' ? '#dc2626' : '#065f46',
-              }}
-              title={lastError ?? undefined}
-            >
-              {syncStatus.toUpperCase()}
-            </span>
-          </div>
-          <div style={styles.row}>
-            <span style={styles.rowLabel}>Reconnects</span>
-            <span style={styles.rowValue}>{retryCount}</span>
-          </div>
-          <div style={styles.row}>
-            <span style={styles.rowLabel}>Session</span>
-            <span style={{ ...styles.rowValue, fontSize: 10 }}>
-              {SESSION_ID.slice(0, 18)}
-            </span>
-          </div>
-          <div style={styles.row}>
-            <span style={styles.rowLabel}>Token</span>
-            <span style={{ ...styles.rowValue, fontSize: 10 }}>
-              {PROCTORING_TOKEN ? 'present' : 'dev generated'}
-            </span>
-          </div>
+            <div style={styles.row}>
+              <span style={styles.rowLabel}>Calibration</span>
+              <span style={styles.rowValue}>
+                {calibrationMap === null ? 'RUNNING' : 'DONE'}
+              </span>
+            </div>
+            <div style={styles.row}>
+              <span style={styles.rowLabel}>Point Samples</span>
+              <span style={styles.rowValue}>
+                {calibrationMap === null
+                  ? '--'
+                  : `${calibrationMap.pointSamples.length} medians`}
+              </span>
+            </div>
+            <div style={styles.row}>
+              <span style={styles.rowLabel}>Tracking</span>
+              <span style={styles.rowValue}>
+                {calibrationMap === null
+                  ? '--'
+                  : `${calibrationMap.trackingSamples.length} samples`}
+              </span>
+            </div>
+            <div style={styles.row}>
+              <span style={styles.rowLabel}>Center</span>
+              <span style={styles.rowValue}>
+                {calibrationMap === null
+                  ? '--'
+                  : `${calibrationMap.centerYaw}/${calibrationMap.centerPitch}`}
+              </span>
+            </div>
+            <div style={styles.row}>
+              <span style={styles.rowLabel}>Range</span>
+              <span style={styles.rowValue}>
+                {calibrationMap === null
+                  ? '--'
+                  : `${calibrationMap.yawRange}/${calibrationMap.pitchRange}`}
+              </span>
+            </div>
 
-          <LiveEventLog events={events} />
-        </div>
-      </main>
+            <div style={styles.divider} />
+
+            <div style={styles.row}>
+              <span style={styles.rowLabel}>Frame Buffer</span>
+              <span style={styles.rowValue}>
+                {bufferSize}/{maxBufferSize}
+              </span>
+            </div>
+            <div style={styles.row}>
+              <span style={styles.rowLabel}>Collected</span>
+              <span style={styles.rowValue}>{collectedCount}</span>
+            </div>
+            <div style={styles.row}>
+              <span style={styles.rowLabel}>Last Sync</span>
+              <span style={styles.rowValue}>{lastSyncCount}</span>
+            </div>
+            <div style={styles.row}>
+              <span style={styles.rowLabel}>Total Synced</span>
+              <span style={styles.rowValue}>{totalSynced}</span>
+            </div>
+            <div style={styles.row}>
+              <span style={styles.rowLabel}>Confidence</span>
+              <span style={styles.rowValue}>
+                {confidence === null ? '--' : `${confidence.toFixed(1)}%`}
+              </span>
+            </div>
+            <div style={styles.row}>
+              <span style={styles.rowLabel}>Sync Status</span>
+              <span
+                style={{
+                  ...styles.rowValue,
+                  color: syncStatus === 'error' ? '#dc2626' : '#065f46',
+                }}
+                title={lastError ?? undefined}
+              >
+                {syncStatus.toUpperCase()}
+              </span>
+            </div>
+            <div style={styles.row}>
+              <span style={styles.rowLabel}>Reconnects</span>
+              <span style={styles.rowValue}>{retryCount}</span>
+            </div>
+            <div style={styles.row}>
+              <span style={styles.rowLabel}>Session</span>
+              <span style={{ ...styles.rowValue, fontSize: 10 }}>
+                {SESSION_ID.slice(0, 18)}
+              </span>
+            </div>
+            <div style={styles.row}>
+              <span style={styles.rowLabel}>Token</span>
+              <span style={{ ...styles.rowValue, fontSize: 10 }}>
+                {PROCTORING_TOKEN ? 'present' : 'dev generated'}
+              </span>
+            </div>
+
+            <LiveEventLog events={events} />
+          </div>
+        </main>
+      )}
     </div>
   );
 }

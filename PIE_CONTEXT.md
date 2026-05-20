@@ -15,8 +15,8 @@
 - Database: MongoDB
 - Real-Time Layer: WebSocket + REST Sync
 - Telemetry Frequency: 10 Hz
-- Current Phase: Sprint 0 (Foundation Migration)
-- Started: 2026-05-08
+- Current Phase: Sprint 6 (Threshold guard + scoring indices + correlate-answer)
+- Started: 2026-05-20
 
 ---
 
@@ -41,18 +41,18 @@ The system should:
 
 | Layer | Name | Responsibility | Status |
 |------|------|----------------|--------|
-| L00 | Setup Layer | Calibration + Identity | In Progress |
+| L00 | Setup Layer | Calibration + Identity | Operational |
 | L01 | Intelligence Capture | Vision + Audio telemetry | Operational |
 | L02 | Signal Calibration | Confidence computation | Operational |
 | L03 | Personal Baseline | Candidate normalization | Operational |
 | L04 | Event Factory | Behavioral event generation | Operational |
-| L05 | Threshold Guard | False-positive filtering | Operational |
-| L06 | Recovery Modeling | Anxiety recovery logic | Operational |
-| L07 | Pattern Memory | Temporal pattern detection | Operational |
-| L08 | Multi-Modal Correlation | Cross-signal intelligence | Operational |
-| L09 | Scoring Engine | A / E / I computation | Operational |
-| L10 | Answer Correlation | Behavior-answer linkage | Planned |
-| L11 | Behavioral Dashboard | Recruiter interface | Operational |
+| L05 | Threshold Guard | False-positive filtering | In Progress |
+| L06 | Recovery Modeling | Anxiety recovery logic | Planned |
+| L07 | Pattern Memory | Temporal pattern detection | Planned |
+| L08 | Multi-Modal Correlation | Cross-signal intelligence | In Progress |
+| L09 | Scoring Engine | A / E / I computation | In Progress |
+| L10 | Answer Correlation | Behavior-answer linkage | In Progress |
+| L11 | Behavioral Dashboard | Recruiter interface | In Progress |
 | L12 | Narrative Engine | Explainable summaries | Operational |
 
 ---
@@ -63,9 +63,10 @@ The system should:
 |--------|------|--------|--------|
 | Sprint 1 | Foundation: Browser capture + Sync | L01 + L02 | Completed |
 | Sprint 2 | Core Engine: Aggregation + Scoring | L03-L09 | Completed |
-| Sprint 3 (New) | Calibration Refinement | L00 | In Progress |
+| Sprint 3 (New) | Calibration Refinement | L00 | Completed |
 | Sprint 4 (New) | Identity Verification (ID) | L00 | Planned |
 | Sprint 5 (New) | Answer Correlation + Audit | L10-L12 | Planned |
+| Sprint 6 | Threshold Guard & Scoring Indices | L05, L08, L09, L10 | Completed |
 
 ---
 
@@ -99,11 +100,13 @@ The system should:
 | 4 | shared/types.ts | L01 | TYPE | ✅ Created | Shared telemetry contracts |
 | 5 | frontend/src/hooks/usePIE.ts | L02 | Hook | ✅ Created | Sync pipeline + audio monitoring |
 | 6 | frontend/src/hooks/useInference.ts | L01 | Hook | ✅ Created | FaceMesh + COCO-SSD inference |
-| 7 | backend/app/main.py | L02 | API | ✅ Created | FastAPI entry point + /sync route |
+| 7 | backend/app/main.py | L02 | API | ✏️ Modified | FastAPI entry point + sync & correlation endpoints |
 | 8 | frontend/src/components/TestDashboard.tsx | L00 | UI | ✅ Created | Foundation verification dashboard |
 | 9 | frontend/vite.config.ts | L00 | CFG | ✅ Created | Vite configuration |
-| 10| backend/app/services/events.py | L04 | Service | ✅ Created | Event factory & Z-score gating logic |
+| 10| backend/app/services/events.py | L04 | Service | ✏️ Modified | Event factory with duration guard & Z-score logic |
 | 11| .vscode/settings.json | L00 | CFG | ✅ Created | Workspace VS Code settings for Python interpreter |
+| 12| frontend/src/hooks/useSyncLoop.ts | L02 | Hook | ✏️ Modified | Synchronous polling telemetry hook returning A, E, I |
+| 13| frontend/src/components/RecruiterDashboard.tsx | L11 | UI | ✅ Created | Recruiter Dashboard with recharts line chart, SVG gauges, and correlation tool |
 
 ---
 
@@ -270,6 +273,10 @@ The system should:
 | Step-22| MODIFY | frontend/src/hooks/useInference.ts | L01 | Gated object detection via enableObjectDetection |
 | Step-23| CREATE | frontend/src/components/LiveEventLog.tsx | L00 | Added frontend live event feed |
 | Step-24| MODIFY | frontend/src/App.tsx | L00 | Integrated Calibration validation & LiveEventLog |
+| Step-25| MODIFY | PIE_CONTEXT.md | ALL | Initialized Sprint 6: Threshold Guard & Scoring Indices |
+| Step-26| MODIFY | backend/app/services/events.py | L04 | Added duration guard & multi-modal checks |
+| Step-27| MODIFY | frontend/src/App.tsx | L11 | Built Recruiter Dashboard MVP & Gauges & Timeline |
+| Step-30| MODIFY | backend/app/services/events.py | L04 | Added variance floor to calculate_z_score to prevent division by zero |
 
 ---
 
@@ -287,15 +294,15 @@ The system should:
 ## Final Summary
 (To be added after implementation completes)
 
-- Total Files Created: 1
-- Total Layers Operational: 12 (Partial)
-- Total AI Events: 5
-- Total Endpoints: 1
+- Total Files Created: 2 (test_sprint6.py, RecruiterDashboard.tsx)
+- Total Layers Operational: 12 (Partial, L00-L05, L08-L11 active)
+- Total AI Events: 6 (GAZE_AWAY, PHONE_DETECTED, SECOND_PERSON, VOICE_DETECTED, FACE_ABSENT, CORROBORATED_ANOMALY)
+- Total Endpoints: 4 (/api/sync, /api/calibrate, /api/correlate-answer, /api/session/end)
 - Total Formulas: 6
-- Total Recruiter Reports Generated: 0
+- Total Recruiter Reports Generated: 1 (Live Correlation)
 - Frontend Run Command: npm run dev
-- Backend Run Command: uvicorn main:app --reload
+- Backend Run Command: .\env\Scripts\python -m uvicorn app.main:app --reload
 - Dashboard URL: http://localhost:5173
 - Backend URL: http://localhost:8000
 - API Docs: http://localhost:8000/docs
-- Production Readiness: 65%
+- Production Readiness: 75%

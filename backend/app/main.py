@@ -93,6 +93,9 @@ class SyncResponse(BaseModel):
     echoed_frames: list[FramePayload]
     baseline: BaselineStats
     events: list[Event]
+    attentiveness: float
+    environment: float
+    integrity: float
 
 
 class SessionRecord(BaseModel):
@@ -115,6 +118,10 @@ class SessionRecord(BaseModel):
     events: list[Event] = Field(default_factory=list)
     last_event_times: dict[str, float] = Field(default_factory=dict)
     last_webhook_sent_at: float = 0.0
+    attentiveness: float = 100.0
+    environment: float = 100.0
+    integrity: float = 100.0
+    has_detected_phone: bool = False
 
 
 class AdminSessionSummary(BaseModel):
@@ -316,29 +323,106 @@ def sync(payload: SyncRequest, background_tasks: BackgroundTasks) -> SyncRespons
     session.recent_frames = session.recent_frames[-MAX_RECENT_FRAMES:]
 
     new_events = []
-    if session.baseline.is_ready and payload.frames:
-        current_window = build_baseline_window(payload.frames)
-        speech_detected = any(frame.vad_speech for frame in payload.frames)
-
-        all_objects = summarize_objects_for_batch(payload.frames)
-
-        print(f"[DEBUG] Latest frame objects: {all_objects}")
-        print(f"[DEBUG] Person count: {all_objects.count('person')}")
-        
+    # D1 Threshold Guard: confidence >= 65.0 to detect/persist events
+    if confidence >= 65.0 and session.baseline.is_ready and payload.frames:
         detected_dicts = detect_events(
-            window_gaze=current_window.gaze_deviation,
-            window_audio=current_window.audio_level,
+            recent_frames=session.recent_frames,
+            new_frames_count=len(payload.frames),
             baseline_gaze_mean=session.baseline.gaze_deviation.mean,
             baseline_gaze_std=session.baseline.gaze_deviation.std_dev,
             baseline_audio_mean=session.baseline.audio_level.mean,
             baseline_audio_std=session.baseline.audio_level.std_dev,
-            speech_detected=speech_detected,
-            objects=all_objects,
             last_event_times=session.last_event_times,
             current_timestamp=current_ts,
         )
         new_events = [Event(**e) for e in detected_dicts]
         session.events.extend(new_events)
+
+    # D3 & D4 Scoring Indices Formula implementation
+    if payload.frames:
+        # Calculate A (Attentiveness)
+        face_ratio = sum(1 for f in payload.frames if f.face_visible) / frame_count
+        gaze_ratio = sum(1 for f in payload.frames if f.gaze_zone == "CENTER") / frame_count
+        
+        pose_ok = 0
+        for f in payload.frames:
+            dev = calculate_gaze_deviation(f)
+            if dev <= 0.26:
+                pose_ok += 1
+            elif session.baseline.is_ready:
+                from app.services.events import calculate_z_score
+                z = calculate_z_score(dev, session.baseline.gaze_deviation.mean, session.baseline.gaze_deviation.std_dev)
+                if abs(z) <= 2.5:
+                    pose_ok += 1
+        pose_ratio = pose_ok / frame_count
+        
+        A = (face_ratio * 0.3 + gaze_ratio * 0.4 + pose_ratio * 0.3) * 100.0
+        
+        # Calculate E (Environment)
+        has_phone = any("cell phone" in f.objects for f in payload.frames)
+        has_second_person = any(f.objects.count("person") > 1 for f in payload.frames)
+        
+        has_voice = False
+        if session.baseline.is_ready:
+            from app.services.events import calculate_z_score
+            has_voice = any(
+                f.vad_speech and calculate_z_score(f.audio_level, session.baseline.audio_level.mean, session.baseline.audio_level.std_dev) > 2.5
+                for f in payload.frames
+            )
+            
+        has_gaze_away = False
+        if session.baseline.is_ready:
+            from app.services.events import calculate_z_score
+            has_gaze_away = any(
+                abs(calculate_z_score(calculate_gaze_deviation(f), session.baseline.gaze_deviation.mean, session.baseline.gaze_deviation.std_dev)) > 2.5
+                for f in payload.frames
+            )
+        else:
+            has_gaze_away = any(calculate_gaze_deviation(f) > 0.26 for f in payload.frames)
+            
+        violations_penalty = 0
+        if has_phone:
+            violations_penalty += 50
+        if has_second_person:
+            violations_penalty += 40
+        if has_voice:
+            violations_penalty += 15
+        if has_gaze_away:
+            violations_penalty += 10
+            
+        # Corroborated anomaly check (D2)
+        has_corrob = any(e.type == "CORROBORATED_ANOMALY" for e in new_events)
+        if not has_corrob:
+            # Check last 5 seconds of session.events
+            five_seconds_ago = current_ts - 5.0
+            for e in reversed(session.events):
+                try:
+                    e_ts = datetime.fromisoformat(e.timestamp).timestamp()
+                    if e_ts < five_seconds_ago:
+                        break
+                    if e.type == "CORROBORATED_ANOMALY":
+                        has_corrob = True
+                        break
+                except Exception:
+                    pass
+        if not has_corrob:
+            has_corrob = any(f.vad_speech and calculate_gaze_deviation(f) > 0.7 for f in payload.frames)
+            
+        multiplier = 1.5 if has_corrob else 1.0
+        E = max(0.0, 100.0 - (violations_penalty * multiplier))
+        
+        # Calculate I (Integrity)
+        I = (A * 0.6 + E * 0.4) * (confidence / 100.0)
+        
+        # Hard-cap: PHONE_DETECTED permanently caps I at 50
+        if not session.has_detected_phone:
+            session.has_detected_phone = any(e.type == "PHONE_DETECTED" for e in session.events)
+        if session.has_detected_phone:
+            I = min(I, 50.0)
+            
+        session.attentiveness = round(A, 2)
+        session.environment = round(E, 2)
+        session.integrity = round(I, 2)
 
     if (
         session.webhook_url
@@ -346,9 +430,9 @@ def sync(payload: SyncRequest, background_tasks: BackgroundTasks) -> SyncRespons
     ):
         webhook_payload = {
             "session_id": session.session_id,
-            "integrity": 100,  # Placeholder until Sprint 6
-            "attentiveness": 100,  # Placeholder until Sprint 6
-            "environment": 100,  # Placeholder until Sprint 6
+            "integrity": session.integrity,
+            "attentiveness": session.attentiveness,
+            "environment": session.environment,
             "events": [e.dict() for e in new_events],
             "latest_events": [e.dict() for e in new_events],
         }
@@ -362,6 +446,9 @@ def sync(payload: SyncRequest, background_tasks: BackgroundTasks) -> SyncRespons
         echoed_frames=payload.frames,
         baseline=session.baseline,
         events=new_events,
+        attentiveness=session.attentiveness,
+        environment=session.environment,
+        integrity=session.integrity,
     )
 
 
@@ -444,3 +531,127 @@ def calibrate(session_id: str, body: CalibrationMap) -> CalibrationResponse:
     session.calibration_map = body.dict()
     session.calibration_complete = True
     return CalibrationResponse(valid=True, reason="Calibration successful.")
+
+
+class CorrelateAnswerRequest(BaseModel):
+    session_id: str
+    question_id: str
+    difficulty: Literal["Easy", "Medium", "Hard"]
+    is_correct: bool
+    time_taken_s: float
+
+
+class CorrelateAnswerResponse(BaseModel):
+    suspicion_level: Literal["HIGH", "MEDIUM", "LOW"]
+    reason: str
+    contributing_events: list[Event]
+
+
+class SessionEndRequest(BaseModel):
+    session_id: str
+
+
+class SessionEndResponse(BaseModel):
+    verdict: Literal["HIGH", "MODERATE", "LOW"]
+    integrity: float
+    attentiveness: float
+    environment: float
+    events_count: int
+
+
+@app.post("/api/correlate-answer", response_model=CorrelateAnswerResponse)
+def correlate_answer(body: CorrelateAnswerRequest) -> CorrelateAnswerResponse:
+    session = get_existing_session_or_404(body.session_id)
+    
+    # Calculate window
+    now_ts = datetime.now(timezone.utc).timestamp()
+    start_ts = now_ts - body.time_taken_s
+    
+    # Find contributing events in the window
+    contributing_events = []
+    for e in session.events:
+        try:
+            e_ts = datetime.fromisoformat(e.timestamp).timestamp()
+            if start_ts <= e_ts <= now_ts:
+                contributing_events.append(e)
+        except Exception:
+            pass
+            
+    # Calculate Suspicion Score S
+    weights = {
+        "PHONE_DETECTED": 50,
+        "SECOND_PERSON": 40,
+        "CORROBORATED_ANOMALY": 30,
+        "GAZE_AWAY": 15,
+        "VOICE_DETECTED": 20,
+    }
+    
+    # Base multipliers
+    correlation_mult = 1.0
+    if body.is_correct:
+        correlation_mult *= 1.5
+        
+    if body.difficulty == "Hard":
+        correlation_mult *= 1.5
+    elif body.difficulty == "Medium":
+        correlation_mult *= 1.2
+        
+    if body.time_taken_s < 5.0:
+        correlation_mult *= 1.5
+        
+    # Phone + Correct Answer additional 2.0x
+    has_phone_in_window = any(e.type == "PHONE_DETECTED" for e in contributing_events)
+    if has_phone_in_window and body.is_correct:
+        correlation_mult *= 2.0
+        
+    S = 0.0
+    for e in contributing_events:
+        weight = weights.get(e.type, 0)
+        S += weight * correlation_mult
+        
+    if S >= 70:
+        level = "HIGH"
+    elif S >= 30:
+        level = "MEDIUM"
+    else:
+        level = "LOW"
+        
+    reason_parts = [
+        f"Suspicion score {S:.1f} calculated based on {len(contributing_events)} event(s) in answering window of {body.time_taken_s}s."
+    ]
+    if has_phone_in_window:
+        reason_parts.append("Phone was detected during this question.")
+    if body.is_correct:
+        reason_parts.append("Answer was correct.")
+        
+    reason = " ".join(reason_parts)
+    
+    return CorrelateAnswerResponse(
+        suspicion_level=level,
+        reason=reason,
+        contributing_events=contributing_events,
+    )
+
+
+@app.post("/api/session/end", response_model=SessionEndResponse)
+def session_end(body: SessionEndRequest) -> SessionEndResponse:
+    session = get_existing_session_or_404(body.session_id)
+    
+    # Verdict logic:
+    # HIGH if final integrity < 50 or a high-severity event occurred
+    has_high_severity_event = any(e.type in ["PHONE_DETECTED", "SECOND_PERSON"] for e in session.events)
+    
+    if session.integrity < 50.0 or has_high_severity_event:
+        verdict = "HIGH"
+    elif session.integrity < 80.0:
+        verdict = "MODERATE"
+    else:
+        verdict = "LOW"
+        
+    return SessionEndResponse(
+        verdict=verdict,
+        integrity=session.integrity,
+        attentiveness=session.attentiveness,
+        environment=session.environment,
+        events_count=len(session.events),
+    )

@@ -14,6 +14,9 @@ export const useSyncLoop = (
   const [syncStatus, setSyncStatus] = useState<'idle' | 'ok' | 'error'>('idle');
   const [lastError, setLastError] = useState<string | null>(null);
   const [confidence, setConfidence] = useState<number | null>(null);
+  const [attentiveness, setAttentiveness] = useState<number>(100);
+  const [environment, setEnvironment] = useState<number>(100);
+  const [integrity, setIntegrity] = useState<number>(100);
   const [retryCount, setRetryCount] = useState(0);
   const [events, setEvents] = useState<PIEEvent[]>([]);
   const isSyncingRef = useRef(false);
@@ -46,6 +49,9 @@ export const useSyncLoop = (
         setLastSyncCount(data.received_count);
         setTotalSynced((count) => count + data.received_count);
         setConfidence(data.confidence);
+        setAttentiveness(data.attentiveness);
+        setEnvironment(data.environment);
+        setIntegrity(data.integrity);
         const newEvents = data.events || [];
         if (newEvents.length > 0) {
           setEvents((prev) => [...prev, ...newEvents].slice(-10)); // Keep last 10
@@ -77,6 +83,9 @@ export const useSyncLoop = (
     syncStatus,
     lastError,
     confidence,
+    attentiveness,
+    environment,
+    integrity,
     retryCount,
     events,
   };

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CalibrationMap, FaceLandmark, GazeData, GazeZone } from '../types';
+import type { CalibrationMap, FaceLandmark, GazeData, GazeZone, CocoPrediction } from '../types';
 
 interface FaceMeshResults {
   multiFaceLandmarks?: FaceLandmark[][];
@@ -21,10 +21,7 @@ interface FaceMeshConstructor {
   new (config: { locateFile: (file: string) => string }): FaceMeshInstance;
 }
 
-interface CocoPrediction {
-  class: string;
-  score: number;
-}
+
 
 interface CocoSsdModel {
   detect(video: HTMLVideoElement): Promise<CocoPrediction[]>;
@@ -96,6 +93,7 @@ export const useInference = (
     pose: { yaw: 0, pitch: 0 },
   });
   const [objects, setObjects] = useState<string[]>([]);
+  const [objectScores, setObjectScores] = useState<CocoPrediction[]>([]);
   const previousObjectsRef = useRef<string[]>([]);
   const latestPoseRef = useRef({ yaw: 0, pitch: 0 });
   const [fps, setFps] = useState(0);
@@ -186,6 +184,7 @@ export const useInference = (
           previousObjectsRef.current = detectedClasses;
           setObjects(detectedClasses);
         }
+        setObjectScores(predictions);
       } catch (err) {
         console.error('[useInference] Object detection error:', err);
       } finally {
@@ -314,5 +313,5 @@ export const useInference = (
     };
   }, [centerPitch, centerYaw, classifyZone, isActive, videoRef]);
 
-  return { gazeData, fps, landmarks, objects, latestPoseRef };
+  return { gazeData, fps, landmarks, objects, objectScores, latestPoseRef };
 };

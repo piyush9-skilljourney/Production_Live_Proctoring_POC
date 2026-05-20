@@ -56,6 +56,11 @@ export interface FaceLandmark {
   z?: number;
 }
 
+export interface CocoPrediction {
+  class: string;
+  score: number;
+}
+
 export interface FramePayload {
   timestamp: number;
   gaze_zone: GazeZone;
@@ -85,4 +90,7 @@ export interface SyncResponse {
   confidence: number;
   echoed_frames: FramePayload[];
   events?: PIEEvent[];
+  attentiveness: number;
+  environment: number;
+  integrity: number;
 }
