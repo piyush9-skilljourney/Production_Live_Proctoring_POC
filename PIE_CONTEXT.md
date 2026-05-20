@@ -15,7 +15,7 @@
 - Database: MongoDB
 - Real-Time Layer: WebSocket + REST Sync
 - Telemetry Frequency: 10 Hz
-- Current Phase: Sprint 6 (Threshold guard + scoring indices + correlate-answer)
+- Current Phase: Sensor Mode Integration (D5 — Assessment Platform Integration)
 - Started: 2026-05-20
 
 ---
@@ -92,14 +92,12 @@ The system should:
 ## File Registry
 (UPDATED ON EVERY FILE CHANGE)
 
-| # | File Path | Layer | Type | Status | Description |
-|---|-----------|------|------|--------|-------------|
 | 1 | PIE_CONTEXT.md | ALL | DOC | ✅ Created | Technical memory & architecture registry |
 | 2 | backend/requirements.txt | L00 | CFG | ✅ Created | Backend dependencies |
 | 3 | frontend/package.json | L00 | CFG | ✅ Created | Frontend dependencies |
-| 4 | shared/types.ts | L01 | TYPE | ✅ Created | Shared telemetry contracts |
+| 4 | shared/types.ts | L01 | TYPE | ✏️ Modified | Added CocoPrediction interface for object confidence scores |
 | 5 | frontend/src/hooks/usePIE.ts | L02 | Hook | ✅ Created | Sync pipeline + audio monitoring |
-| 6 | frontend/src/hooks/useInference.ts | L01 | Hook | ✅ Created | FaceMesh + COCO-SSD inference |
+| 6 | frontend/src/hooks/useInference.ts | L01 | Hook | ✏️ Modified | Added objectScores state (full CocoPrediction[]) returned from hook |
 | 7 | backend/app/main.py | L02 | API | ✏️ Modified | FastAPI entry point + sync & correlation endpoints |
 | 8 | frontend/src/components/TestDashboard.tsx | L00 | UI | ✅ Created | Foundation verification dashboard |
 | 9 | frontend/vite.config.ts | L00 | CFG | ✅ Created | Vite configuration |
@@ -107,6 +105,9 @@ The system should:
 | 11| .vscode/settings.json | L00 | CFG | ✅ Created | Workspace VS Code settings for Python interpreter |
 | 12| frontend/src/hooks/useSyncLoop.ts | L02 | Hook | ✏️ Modified | Synchronous polling telemetry hook returning A, E, I |
 | 13| frontend/src/components/RecruiterDashboard.tsx | L11 | UI | ✅ Created | Recruiter Dashboard with recharts line chart, SVG gauges, and correlation tool |
+| 14| frontend/src/App.tsx | L01 | App | ✏️ Modified | Added IS_SENSOR_MODE + SENSOR_PREVIEW flags; auto-request camera; auto-set isActive; render sensor UI BEFORE permission gate; disable sync loop in sensor mode; 10Hz postMessage broadcast |
+| 15| assessment-web-app/src/hooks/useProctoringSensor.ts | L01 | Hook | ✅ Created | Assessment platform hook: listens to PIE_RAW_FRAME postMessage, tracks violation duration (≥3s), averages AI confidence per violation type |
+| 16| assessment-web-app/src/pages/AssessmentPage.tsx | L01 | Page | ✏️ Modified | Imported useProctoringSensor; added hidden PIE iframe (display:none, 0x0); fixed NodeJS.Timeout → ReturnType<typeof setInterval> |
 
 ---
 
@@ -134,7 +135,8 @@ The system should:
 | face_visible | boolean | Face visibility state | FaceMesh |
 | audio_level | number | RMS amplitude | Web Audio API |
 | vad_speech | boolean | Voice activity | Audio VAD |
-| objects | array | Detected objects | COCO-SSD |
+| objects | array | Detected object class names | COCO-SSD |
+| object_scores | CocoPrediction[] | Detected objects with AI confidence scores | COCO-SSD |
 | confidence | number | Signal quality score | L02 |
 | attentiveness | number | A Index | L09 |
 | environment | number | E Index | L09 |
@@ -277,6 +279,11 @@ The system should:
 | Step-26| MODIFY | backend/app/services/events.py | L04 | Added duration guard & multi-modal checks |
 | Step-27| MODIFY | frontend/src/App.tsx | L11 | Built Recruiter Dashboard MVP & Gauges & Timeline |
 | Step-30| MODIFY | backend/app/services/events.py | L04 | Added variance floor to calculate_z_score to prevent division by zero |
+| Step-31| MODIFY | frontend/src/types.ts | L01 | Added CocoPrediction export interface for object confidence reporting |
+| Step-32| MODIFY | frontend/src/hooks/useInference.ts | L01 | Import CocoPrediction from types; add objectScores state; setObjectScores on every detect cycle; return objectScores |
+| Step-33| MODIFY | frontend/src/App.tsx | L01 | Add IS_SENSOR_MODE + SENSOR_PREVIEW flags; sensor auto-camera-request + auto-isActive useEffect; sensor render block moved BEFORE permission gate; disable sync loop in sensor mode; 10Hz postMessage loop |
+| Step-34| CREATE | assessment-web-app/src/hooks/useProctoringSensor.ts | L01 | New hook in Assessment App: listens for PIE_RAW_FRAME; tracks phone/face/voice violation windows with ≥3s duration gate; averages AI confidence scores per violation |
+| Step-35| MODIFY | assessment-web-app/src/pages/AssessmentPage.tsx | L01 | Import + call useProctoringSensor(); add hidden PIE sensor iframe (display:none 0x0 absolute); fix NodeJS.Timeout TS error |
 
 ---
 
@@ -288,6 +295,8 @@ The system should:
 | 2 | Mobile Safari camera inconsistency | L01 | Medium |
 | 3 | DeepFace cold-start latency | L09 | Medium |
 | 4 | Temporal memory optimization needed | L07 | Medium |
+| 5 | Sensor iframe src must match the branch Vercel URL (not frozen commit URL) | L01 | High — RESOLVED locally, needs prod deploy |
+| 6 | Sensor mode must render before CameraPermission gate — FIXED in Step-33 | L01 | Critical — RESOLVED |
 
 ---
 

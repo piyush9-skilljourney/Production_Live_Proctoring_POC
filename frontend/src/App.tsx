@@ -95,6 +95,18 @@ function App() {
 
   const { permission, micPermission, mediaStream, videoRef, requestAccess } =
     useCamera();
+
+  // SENSOR MODE: auto-request camera and auto-activate without user interaction
+  useEffect(() => {
+    if (!IS_SENSOR_MODE) return;
+    if (permission === 'idle') {
+      requestAccess();
+    } else if (permission === 'granted' && !isActive) {
+      // Camera is ready — activate the proctoring pipeline silently
+      setIsActive(true);
+    }
+  }, [IS_SENSOR_MODE, permission, isActive, requestAccess]);
+
   const { gazeData, fps, landmarks, objects, objectScores, latestPoseRef } = useInference(
     videoRef,
     isActive,
@@ -248,16 +260,8 @@ function App() {
     setCalibrationMap(DEV_CALIBRATION_MAP);
   };
 
-  if (!isBrowserSupported() || permission !== 'granted') {
-    return (
-      <CameraPermission
-        permission={permission}
-        micPermission={micPermission}
-        onRequest={handleGranted}
-      />
-    );
-  }
-
+  // SENSOR MODE: render minimal hidden UI BEFORE the permission gate
+  // so the camera permission gate never shows inside the iframe
   if (IS_SENSOR_MODE) {
     return (
       <div style={{ background: '#000', width: '100vw', height: '100vh', overflow: 'hidden' }}>
@@ -269,6 +273,16 @@ function App() {
           style={{ width: '100%', height: '100%', objectFit: 'cover', display: SENSOR_PREVIEW ? 'block' : 'none' }}
         />
       </div>
+    );
+  }
+
+  if (!isBrowserSupported() || permission !== 'granted') {
+    return (
+      <CameraPermission
+        permission={permission}
+        micPermission={micPermission}
+        onRequest={handleGranted}
+      />
     );
   }
 
